@@ -43,6 +43,7 @@ from smap.iface.tinyos import TOSSerialClient
 from smap.driver import SmapDriver
 
 
+
 class KetiMoteReceiver(TOSSerialClient):
     TYPE_TH = 0x64
     TYPE_PIR = 0x65
@@ -57,22 +58,38 @@ class KetiMoteReceiver(TOSSerialClient):
     SHT11_C1 = -4.0
     SHT11_C2 = 0.0405
     SHT11_C3 = -2.8e-6
-    SEQUENCE_CACHE = set([])
+
+    CACHE_SIZE = 10  ##
 
     def __init__(self, consumer):
         self.consumer = consumer
         TOSSerialClient.__init__(self)
+        self.__cache = {}
     
+    def is_cached(node_id, seq):
+        if node_id in self.__cache:
+            return seq in self.__cache[node_id]
+
+        return False
+
+    def add_to_cache(node_id, seq):
+        if node_id not in self.__cache:
+            self.__cache[node_id] = [seq]
+        else:
+            self.__cache[node_id].append(seq)
+            while len(self.__cache[node_id]) > KetiMoteReceiver.CACHE_SIZE:
+                self.__cache[node_id] = self.__cache[node_id][1:]
+
     def packetReceived(self, pkt):
         if len(pkt) != 29:
             return
 
         # pull apart the packet header, ignoring the tinyos part
         typ, serial_id, node_id, seq, bat, sensor = struct.unpack(">H6sHHH6s", pkt[9:29])
-        if (node_id, seq) in KetiMoteReceiver.SEQUENCE_CACHE:
+        if self.is_cached(node_id, seq):
             return
         else:
-            KetiMoteReceiver.SEQUENCE_CACHE.add((node_id, seq))
+            self.add_to_cache(node_id, seq)
 
         data  = {
             'serial_id': serial_id,
@@ -156,4 +173,3 @@ class KetiDriver(SmapDriver):
             if name in msg:
                 self._add('/' + str(msg['node_id']) + '/' + name,
                           msg[name])
-
